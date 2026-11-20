@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>맑고푸른곶 대기측정 통합관리</title>
+<style>
+/* =========================================================
+   맑고푸른곶 대기측정 통합관리 (내부용, 단일 HTML)
+   - 현장(외근팀) 입력 → 분석팀 입력 → 자동 계산 → 서식 출력
+   - 저장: 브라우저(localStorage) + JSON 파일 내보내기/가져오기
+   ========================================================= */
+:root{
+  --pine:#0f4a3c; --pine2:#1f6b57; --ink:#1d2b27; --rule:#c9d3cf;
+  --paper:#ffffff; --bg:#eef2f0; --calc:#e4f1ec; --warn:#b4541a; --ok:#1f6b57;
+}
+*{box-sizing:border-box;font-family:"맑은 고딕","Malgun Gothic",sans-serif}
+body{margin:0;background:var(--bg);color:var(--ink);font-size:13px}
+header{background:var(--pine);color:#fff;display:flex;align-items:center;gap:16px;padding:10px 18px}
+header h1{font-size:17px;margin:0;font-weight:700}
+header .rec{margin-left:auto;display:flex;gap:6px;align-items:center}
+header select,header button{height:30px;border:0;border-radius:3px;padding:0 10px;font-size:13px}
+header button{background:#fff;color:var(--pine);cursor:pointer}
+header button.ghost{background:transparent;color:#fff;border:1px solid #9cc5b8}
+nav{display:flex;background:#fff;border-bottom:1px solid var(--rule);padding:0 12px;flex-wrap:wrap}
+nav button{border:0;background:none;padding:12px 16px;cursor:pointer;font-size:13px;border-bottom:3px solid transparent;color:#4b5b56}
+nav button.on{color:var(--pine);border-bottom-color:var(--pine);font-weight:700}
+main{padding:18px;max-width:1280px;margin:0 auto}
+.tab{display:none}.tab.on{display:block}
+fieldset{border:1px solid var(--rule);background:var(--paper);margin:0 0 14px;padding:12px 14px 14px}
+legend{font-weight:700;color:var(--pine);padding:0 6px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px 12px}
+.f{display:flex;flex-direction:column;gap:3px}
+.f label{font-size:12px;color:#55645f}
+.f input,.f select{height:30px;border:1px solid #b9c5c1;border-radius:2px;padding:0 6px;font-size:13px;background:#fff}
+.f input:focus,.f select:focus,td input:focus{outline:2px solid #7fb8a6;outline-offset:-1px}
+.f input[readonly],td input[readonly]{background:var(--calc);border-color:#bcd9cf;color:#0f4a3c;font-weight:700}
+table.t{width:100%;border-collapse:collapse;background:#fff}
+table.t th,table.t td{border:1px solid var(--rule);padding:3px;text-align:center;font-size:12px}
+table.t th{background:#f3f6f5;font-weight:600}
+table.t td input{width:100%;border:0;height:26px;text-align:center;font-size:12px;background:transparent}
+.calcbox{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+.cv{background:var(--calc);border:1px solid #bcd9cf;padding:8px 10px}
+.cv b{display:block;font-size:17px;color:var(--pine)}
+.cv span{font-size:12px;color:#55645f}
+.cv.bad{background:#fbece3;border-color:#e3b79c}.cv.bad b{color:var(--warn)}
+.hint{font-size:12px;color:#66746f;margin:6px 0 0}
+.btn{height:32px;padding:0 14px;border:0;border-radius:3px;background:var(--pine);color:#fff;cursor:pointer;font-size:13px}
+.btn.line{background:#fff;color:var(--pine);border:1px solid var(--pine)}
+.btns{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.formula{font-family:inherit;background:#f7faf9;border-left:3px solid var(--pine2);padding:6px 10px;margin:4px 0;font-size:12px;white-space:pre-wrap}
+.toast{position:fixed;right:18px;bottom:18px;background:var(--pine);color:#fff;padding:10px 16px;border-radius:3px;display:none}
+
+/* ---------- 출력 서식 (A4) ---------- */
+.sheet{width:210mm;min-height:297mm;background:#fff;margin:0 auto 18px;padding:11mm 11mm 9mm;box-shadow:0 1px 6px #b8c4c0;position:relative;font-size:10.5px}
+.sheet .code{font-size:9.5px}
+.sheet h2{text-align:center;font-size:19px;margin:6px 0 10px;letter-spacing:2px}
+.sheet table{width:100%;border-collapse:collapse;margin-bottom:6px;table-layout:fixed}
+.sheet th,.sheet td{border:1px solid #000;padding:2px 3px;text-align:center;height:19px;font-size:10px;word-break:keep-all}
+.sheet th{background:#f2f2f2;font-weight:600}
+.sheet .sub{font-weight:700;margin:6px 0 3px;font-size:11px}
+.sheet .foot{position:absolute;left:11mm;right:11mm;bottom:6mm;display:flex;justify-content:space-between;font-size:9px;border-top:1px solid #000;padding-top:2px}
+.sheet .l{text-align:left;padding-left:5px}
+.sheet .eq{font-size:10px;text-align:left;padding:3px 6px;line-height:1.55}
+.printbar{text-align:center;margin-bottom:12px}
+
+@page{size:A4;margin:0}
+@media print{
+  body{background:#fff}
+  header,nav,.no-print,.printbar,.tab:not(.print-target){display:none!important}
+  main{padding:0;max-width:none}
+  .tab.print-target{display:block!important}
+  .sheet{box-shadow:none;margin:0;page-break-after:always}
+  .sheet.skip{display:none}
+}
+
+/* Official form 1-1 layout */
+.sheet.official-1-1{padding:7mm 8mm 8mm;font-size:8px;overflow:hidden}
+.official-1-1 .code{font-size:8px}
+.official-1-1 h2{font-size:15px;letter-spacing:1px;margin:2mm 0 1.5mm}
+.official-note{font-size:6.5px;text-align:center;margin:0 0 1.5mm}
+.official-1-1 table{margin:0 0 1.2mm;width:100%;table-layout:fixed;border-collapse:collapse}
+.official-1-1 th,.official-1-1 td{border:1px solid #111;padding:1mm .6mm;height:auto;min-height:4mm;font-size:6.5px;line-height:1.12;word-break:break-all;overflow-wrap:anywhere;vertical-align:middle}
+.official-1-1 th{font-weight:normal;background:#f4f4f4}
+.official-1-1 .vertical{width:5.5%;writing-mode:vertical-rl;text-orientation:mixed;letter-spacing:1px}
+.official-1-1 .left{text-align:left;padding-left:1.5mm}
+.official-1-1 .official-head th:nth-child(2){width:15%}
+.official-1-1 .official-weather th,.official-1-1 .official-weather td{font-size:6.2px}
+.official-1-1 .official-ops th,.official-1-1 .official-ops td{font-size:6px;padding:.8mm .4mm}
+.official-1-1 .official-results th,.official-1-1 .official-results td{font-size:6.1px;padding:.8mm .4mm}
+.official-1-1 .official-opinion td{height:12mm}
+.official-declaration{text-align:center;font-size:7px;line-height:1.4;margin:2mm 0 1mm}
+.official-foot{font-size:5.8px;position:absolute;bottom:4mm;left:8mm;right:8mm}
+@media print{.sheet.official-1-1{width:210mm!important;height:297mm!important;padding:7mm 8mm 8mm!important}
+.official-1-1 table{margin-bottom:1mm!important}
+.official-1-1 th,.official-1-1 td{font-size:6.5pt!important;padding:.8mm .5mm!important}
+.official-1-1 .official-ops th,.official-1-1 .official-ops td,.official-1-1 .official-results th,.official-1-1 .official-results td{font-size:5.8pt!important}
+.official-1-1 .official-foot{font-size:5.4pt!important}
+}
+</style>
+
+<style>
+/* 성적서/기록부 출력 칸 정렬 보정 */
+@media print {
+  .sheet { width: 100%; max-width: 100%; box-sizing: border-box; overflow: hidden; }
+  .sheet table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+  .sheet th, .sheet td { box-sizing: border-box; padding: 3px 4px; font-size: 8.5pt; line-height: 1.2; word-break: keep-all; overflow-wrap: anywhere; vertical-align: middle; }
+  .sheet h2 { margin: 4px 0 8px; font-size: 15pt; }
+  .sheet .result-table th, .sheet .result-table td { font-size: 8pt; }
+  .sheet .result-table td:nth-child(2), .sheet .result-table td:nth-child(3) { text-align: center; }
+}
+</style>
+
+<style>
+/* Professional UI polish - 화면 전용, 출력 서식은 기존 레이아웃 유지 */
+:root{--pine:#123f35;--pine2:#1b6955;--ink:#20312c;--rule:#d7e1dd;--bg:#f3f6f5;--calc:#e7f3ee;--warn:#b4541a;--ok:#1f6b57}
+body{font-size:14px;background:linear-gradient(180deg,#edf4f1 0,#f6f8f7 220px,var(--bg) 100%);color:#20312c}
+header{position:sticky;top:0;z-index:20;min-height:62px;padding:12px 22px;box-shadow:0 3px 14px rgba(10,45,35,.12);background:linear-gradient(110deg,#103d33,#1c6854)}
+header h1{font-size:18px;letter-spacing:-.3px}
+header .rec{gap:7px;flex-wrap:wrap}
+header select,header button{height:34px;border-radius:7px;font-weight:600;transition:.15s ease}
+header button:hover{transform:translateY(-1px);box-shadow:0 3px 8px #0002}
+nav{position:sticky;top:62px;z-index:15;padding:0 18px;background:rgba(255,255,255,.94);backdrop-filter:blur(10px);box-shadow:0 2px 7px rgba(20,50,40,.06)}
+nav button{padding:14px 18px;font-weight:600;color:#62716c;border-bottom-width:3px;transition:.18s ease}
+nav button:hover{color:var(--pine2);background:#f5faf8}
+nav button.on{color:var(--pine);border-bottom-color:#2b8b70}
+main{max-width:1440px;padding:22px 24px 36px}
+fieldset{border:1px solid #dce6e2;border-radius:12px;background:#fff;margin:0 0 16px;padding:17px 18px 19px;box-shadow:0 2px 8px rgba(30,60,50,.035)}
+legend{font-size:14px;font-weight:800;color:#174c3e;padding:0 9px;letter-spacing:-.2px}
+.grid{gap:12px 14px;grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}
+.f{gap:5px}
+.f label{font-size:12px;font-weight:600;color:#5d6e67}
+.f input,.f select{height:36px;border:1px solid #cbd8d3;border-radius:7px;padding:0 9px;font-size:13px;transition:border-color .15s,box-shadow .15s}
+.f input:hover,.f select:hover{border-color:#8eaaa0}
+.f input:focus,.f select:focus,td input:focus{outline:none;border-color:#31866d;box-shadow:0 0 0 3px rgba(49,134,109,.13)}
+.f input[readonly],td input[readonly]{border-radius:6px}
+table.t{border-radius:8px;overflow:hidden}
+table.t th{background:#edf4f1;color:#35564b;font-weight:700}
+table.t th,table.t td{padding:5px 4px}
+table.t td input{height:30px;border-radius:4px}
+.calcbox{gap:12px}
+.cv{border-radius:9px;padding:12px 14px;box-shadow:inset 0 1px 0 #fff8}
+.cv b{font-size:19px;letter-spacing:-.3px}
+.btn{height:36px;border-radius:7px;padding:0 16px;font-weight:700;transition:.15s ease}
+.btn:hover{filter:brightness(1.08);transform:translateY(-1px);box-shadow:0 3px 8px #123f3520}
+.btn.line{border-radius:7px}
+.btns{gap:8px;margin:10px 0}
+.hint{color:#687a73;line-height:1.6}
+.toast{border-radius:9px;box-shadow:0 5px 20px #0002;z-index:50}
+#recList{min-width:180px}
+.tab{animation:tabFade .16s ease}
+@keyframes tabFade{from{opacity:.75;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
+:focus-visible{outline:3px solid #69ad95!important;outline-offset:2px}
+@media(max-width:900px){header{position:relative;flex-wrap:wrap}header .rec{margin-left:0;width:100%}nav{top:0;padding:0 6px}nav button{padding:12px 10px;font-size:12px}main{padding:14px}fieldset{padding:13px}.grid{grid-template-columns:repeat(auto-fill,minmax(155px,1fr))}}
+@media(max-width:600px){header h1{font-size:16px}header .rec button{flex:1}nav{overflow-x:auto;flex-wrap:nowrap}nav button{white-space:nowrap}main{padding:10px}.grid{grid-template-columns:1fr 1fr}fieldset{margin-bottom:12px}table.t{display:block;overflow-x:auto;white-space:nowrap}}
+@media print{body{background:#fff}header,nav{position:static;box-shadow:none}fieldset{box-shadow:none;border-radius:0}main{padding:0}}
+</style>
+
+</head>
+<body>
+
+<header>
+  <h1>맑고푸른곶 대기측정 통합관리</h1>
+  <div class="rec no-print">
+    <select id="recList" title="저장된 시료"></select>
+    <button onclick="newRecord()">새 시료</button>
+    <button onclick="saveRecord()">저장</button>
+    <button class="ghost" onclick="deleteRecord()">삭제</button>
+    <button class="ghost" onclick="exportJSON()">파일로 내보내기</button>
+    <button class="ghost" onclick="document.getElementById('imp').click()">파일 불러오기</button>
+    <input type="file" id="imp" accept=".json" style="display:none" onchange="importJSON(this)">
+  </div>
+</header>
+
+<nav class="no-print">
+  <button class="on" data-tab="t1">1. 현장 입력(외근팀)</button>
+  <button data-tab="t2">2. 분석 입력(분석팀)</button>
+  <button data-tab="t3">3. 계산 결과</button>
+  <button data-tab="t4">4. 서식 출력</button>
+  <button data-tab="t5">장비·기본값 설정</button>
+</nav>
+
+<main>
+
+<!-- ======================= 1. 현장 입력 ======================= -->
+<section class="tab on" id="t1">
+
+<fieldset><legend>측정의뢰기관 정보</legend>
+<div class="grid">
+  <div class="f"><label>시료접수번호</label><input data-k="sampleNo"></div>
+  <div class="f"><label>시료채취일</label><input data-k="date" type="date"></div>
+  <div class="f"><label>측정시간 (시작)</label><input data-k="timeFrom" type="time"></div>
+  <div class="f"><label>측정시간 (종료)</label><input data-k="timeTo" type="time"></div>
+  <div class="f"><label>업소명</label><input data-k="company"></div>
+  <div class="f"><label>사업장 소재지</label><input data-k="address"></div>
+  <div class="f"><label>대표자</label><input data-k="ceo"></div>
+  <div class="f"><label>환경기술인</label><input data-k="envTech"></div>
+  <div class="f"><label>업종</label><input data-k="industry"></div>
+  <div class="f"><label>사업장 종별</label><input data-k="siteClass" placeholder="예: 5종"></div>
+  <div class="f"><label>배출시설명</label><input data-k="facility"></div>
+  <div class="f"><label>배출시설 번호</label><input data-k="facilityNo" placeholder="예: 배-3"></div>
+  <div class="f"><label>방지시설명</label><input data-k="prevent"></div>
+  <div class="f"><label>방지시설 용량 (m³/min)</label><input data-k="preventCap" type="number" step="any"></div>
+  <div class="f"><label>방지 대상물질</label><input data-k="preventTarget"></div>
+  <div class="f"><label>측정 용도</label><input data-k="purpose" placeholder="예: 자가측정"></div>
+</div>
+</fieldset>
+
+<fieldset><legend>굴뚝 정보 · 기상</legend>
+<div class="grid">
+  <div class="f"><label>굴뚝 명칭</label><input data-k="stackName"></div>
+  <div class="f"><label>굴뚝 높이 (m)</label><input data-k="stackHeight" type="number" step="any"></div>
+  <div class="f"><label>굴뚝 종별</label><input data-k="stackClass" placeholder="예: 5"></div>
+  <div class="f"><label>굴뚝 모양</label><select data-k="shape"><option>원형</option><option>사각</option></select></div>
+  <div class="f"><label>직경 D (m)</label><input data-k="D" type="number" step="any"></div>
+  <div class="f"><label>가로 (m)</label><input data-k="W" type="number" step="any"></div>
+  <div class="f"><label>세로 (m)</label><input data-k="H" type="number" step="any"></div>
+  <div class="f"><label>플랜지 길이 (m)</label><input data-k="flange" type="number" step="any"></div>
+  <div class="f"><label>날씨</label><select data-k="weather"><option>맑음</option><option>흐림</option><option>구름</option><option>눈</option><option>비</option></select></div>
+  <div class="f"><label>기온 (℃)</label><input data-k="airT" type="number" step="any"></div>
+  <div class="f"><label>습도 (%)</label><input data-k="airRH" type="number" step="any"></div>
+  <div class="f"><label>대기압 (mmHg)</label><input data-k="airP" type="number" step="any"></div>
+  <div class="f"><label>풍향</label><select data-k="windDir"><option>북</option><option>북동</option><option>동</option><option>남동</option><option>남</option><option>남서</option><option>서</option><option>북서</option></select></div>
+  <div class="f"><label>풍속 (m/s)</label><input data-k="windSpd" type="number" step="any"></div>
+</div>
+<p class="hint" id="pointHint"></p>
+</fieldset>
+
+<fieldset><legend>측정조건</legend>
+<div class="grid">
+  <div class="f"><label>측정팀 (장비)</label><select data-k="team" id="teamSel"></select></div>
+  <div class="f"><label>흡입노즐 직경 (mm)</label><select data-k="nozzle" id="nozzleSel"></select></div>
+  <div class="f"><label>측정공 위치 대기압 Pa (mmHg)</label><input data-k="Pa" type="number" step="any"></div>
+  <div class="f"><label>표준산소농도 Os (%)</label><input data-k="Os" type="number" step="any" placeholder="보정 없으면 20.9"></div>
+  <div class="f"><label>산소(O₂) 측정값 (%)</label><input data-k="O2" type="number" step="any"></div>
+  <div class="f"><label>이산화탄소(CO₂) 측정값 (%)</label><input data-k="CO2" type="number" step="any"></div>
+  <div class="f"><label>밀도 적용</label><select data-k="rhoMode"><option value="gas">기체(계산)</option><option value="solid">고체·액체(1.3)</option></select></div>
+  <div class="f"><label>누출 전 유량 (L)</label><input data-k="leakB" type="number" step="any"></div>
+  <div class="f"><label>누출 후 유량 (L)</label><input data-k="leakA" type="number" step="any"></div>
+  <div class="f"><label>여과지 번호</label><input data-k="filterNo"></div>
+</div>
+</fieldset>
+
+<fieldset><legend>수분량</legend>
+<div class="grid">
+  <div class="f"><label>측정방법</label><select data-k="moistMode"><option value="auto">자동측정법</option><option value="abs">흡습관법</option></select></div>
+  <div class="f"><label>자동 1회 (%)</label><input data-k="mA1" type="number" step="any"></div>
+  <div class="f"><label>자동 2회 (%)</label><input data-k="mA2" type="number" step="any"></div>
+  <div class="f"><label>자동 3회 (%)</label><input data-k="mA3" type="number" step="any"></div>
+  <div class="f"><label>자동 4회 (%)</label><input data-k="mA4" type="number" step="any"></div>
+  <div class="f"><label>자동 5회 (%)</label><input data-k="mA5" type="number" step="any"></div>
+  <div class="f"><label>흡습 전 흡입량 (L)</label><input data-k="mVb" type="number" step="any"></div>
+  <div class="f"><label>흡습 후 흡입량 (L)</label><input data-k="mVa" type="number" step="any"></div>
+  <div class="f"><label>가스미터온도 in (℃)</label><input data-k="mTin" type="number" step="any"></div>
+  <div class="f"><label>가스미터온도 out (℃)</label><input data-k="mTout" type="number" step="any"></div>
+  <div class="f"><label>가스미터압력 (mmH₂O)</label><input data-k="mPm" type="number" step="any"></div>
+  <div class="f"><label>흡습관 질량 ma1 (g)</label><input data-k="ma1" type="number" step="any"></div>
+  <div class="f"><label>흡습관 질량 ma2 (g)</label><input data-k="ma2" type="number" step="any"></div>
+</div>
+</fieldset>
+
+<fieldset><legend>입자상(먼지) 시료채취 — 측정점별</legend>
+<table class="t" id="ptTable">
+<thead><tr>
+  <th>측정점</th><th>측정시간</th><th>채취시간<br>(min)</th><th>진공게이지압<br>(mmHg)</th><th>배출가스온도<br>(℃)</th>
+  <th>정압<br>(mmH₂O)</th><th>동압<br>(mmH₂O)</th><th>오리피스압차<br>목표 ΔH</th><th>가스미터<br>누적값 (L)</th>
+  <th>가스미터온도<br>in (℃)</th><th>가스미터온도<br>out (℃)</th><th>임핀저출구<br>온도 (℃)</th>
+</tr></thead><tbody></tbody></table>
+<p class="hint">가스미터 누적값은 측정점이 끝날 때마다 읽은 값을 그대로 적습니다(첫 칸은 시작값 기준). 오리피스압차 목표 ΔH는 K-factor × 동압으로 자동 표시됩니다.</p>
+<div class="grid" style="margin-top:8px">
+  <div class="f"><label>가스미터 시작값 (L)</label><input data-k="vmStart" type="number" step="any" placeholder="0"></div>
+</div>
+</fieldset>
+
+<fieldset><legend>가스상 시료채취</legend>
+<table class="t" id="gasField">
+<thead><tr><th>항목</th><th>채취시간</th><th>전 흡인량 (L)</th><th>후 흡인량 (L)</th><th>온도 in (℃)</th><th>온도 out (℃)</th><th>가스미터압력 (mmH₂O)</th><th>흡인량 (L)</th><th>보정 흡인량 Vs (L)</th></tr></thead>
+<tbody></tbody></table>
+</fieldset>
+
+<fieldset><legend>자동측정기 측정값 (전기화학식·FID 등)</legend>
+<table class="t" id="instField">
+<thead><tr><th>항목</th><th>측정시간</th><th>1회</th><th>2회</th><th>3회</th><th>평균</th></tr></thead>
+<tbody></tbody></table>
+</fieldset>
+
+<fieldset><legend>시설 가동 정보 · 서명</legend>
+<table class="t" id="opsTable">
+<thead><tr><th>배출시설 명칭</th><th>연료사용량</th><th>제품생산량</th><th>소각량</th><th>원료투입량</th><th>종류</th><th>단위</th></tr></thead>
+<tbody></tbody></table>
+<div class="grid" style="margin-top:10px">
+  <div class="f"><label>시료채취자 A</label><input data-k="samplerA"></div>
+  <div class="f"><label>시료채취자 B</label><input data-k="samplerB"></div>
+  <div class="f"><label>기술책임자</label><input data-k="techMgr"></div>
+</div>
+</fieldset>
+</section>
+
+<!-- ======================= 2. 분석 입력 ======================= -->
+<section class="tab" id="t2">
+<fieldset><legend>먼지 (중량법)</legend>
+<div class="grid">
+  <div class="f"><label>포집 전 질량 m1 (mg)</label><input data-k="dm1" type="number" step="any"></div>
+  <div class="f"><label>포집 후 질량 m2 (mg)</label><input data-k="dm2" type="number" step="any"></div>
+  <div class="f"><label>바탕시험 (mg)</label><input data-k="dmb" type="number" step="any"></div>
+  <div class="f"><label>포집 먼지량 md (mg)</label><input id="out_md" readonly></div>
+  <div class="f"><label>먼지 산소보정</label><select data-k="dustO2"><option value="1">적용</option><option value="0">미적용</option></select></div>
+  <div class="f"><label>먼지 허용기준</label><input data-k="dustLimit"></div>
+</div>
+</fieldset>
+
+<fieldset><legend>흡수액 분석 항목 (가스상 · 확장 목록)</legend>
+<table class="t" id="gasLab">
+<thead><tr><th>항목</th><th>분자량 M</th><th>시료 농도 a (mg/L)</th><th>바탕 b (mg/L)</th><th>시료액량 V (mL)</th><th>희석배수</th><th>결과 단위</th><th>산소보정</th><th>측정분석방법 (기기)</th><th>허용기준</th><th>결과</th></tr></thead>
+<tbody></tbody></table>
+<p class="hint">ppm = (a−b) × V × 희석배수 × 22.4 ÷ (Vs × M) · mg/Sm³ = (a−b) × V × 희석배수 ÷ Vs (Vs 단위 L)</p>
+</fieldset>
+
+<fieldset><legend>중금속 및 금속화합물 (ICP 등 · 확장 목록)</legend>
+<table class="t" id="metalLab">
+<thead><tr><th>항목</th><th>시료 농도 a (mg/L)</th><th>바탕 b (mg/L)</th><th>시료액량 V (mL)</th><th>희석배수</th><th>측정분석방법 (기기)</th><th>허용기준</th><th>결과 (mg/Sm³)</th></tr></thead>
+<tbody></tbody></table>
+<p class="hint">mg/Sm³ = (a−b) × V × 희석배수 ÷ 1000 ÷ Vs(Sm³) · Vs는 먼지 시료채취량을 사용합니다.</p>
+</fieldset>
+
+<fieldset><legend>자동측정·기타 분석 항목 기준·방법 (확장 목록)</legend>
+<table class="t" id="instLab">
+<thead><tr><th>항목</th><th>산소보정</th><th>측정분석방법 (기기)</th><th>허용기준</th><th>결과</th></tr></thead>
+<tbody></tbody></table>
+</fieldset>
+
+<fieldset><legend>분석 정보</legend>
+<div class="grid">
+  <div class="f"><label>분석 시작일</label><input data-k="anaFrom" type="date"></div>
+  <div class="f"><label>분석 종료일</label><input data-k="anaTo" type="date"></div>
+  <div class="f"><label>분석기술인</label><input data-k="analyst"></div>
+  <div class="f"><label>책임기술인</label><input data-k="anaMgr"></div>
+  <div class="f" style="grid-column:1/-1"><label>종합의견</label><input data-k="opinion"></div>
+</div>
+</fieldset>
+</section>
+
+<!-- ======================= 3. 계산 결과 ======================= -->
+<section class="tab" id="t3">
+<fieldset><legend>배출가스 조건</legend><div class="calcbox" id="calcMain"></div></fieldset>
+<fieldset><legend>등속흡인 · 먼지</legend><div class="calcbox" id="calcIso"></div></fieldset>
+<fieldset><legend>계산식 대입 내역 (시험기록부와 동일)</legend><div id="calcFormula"></div></fieldset>
+<fieldset><legend>오염물질 농도 계산 결과</legend><div id="calcConcentration"></div></fieldset>
+</section>
+
+<!-- ======================= 4. 서식 출력 ======================= -->
+<section class="tab" id="t4">
+<div class="printbar no-print">
+  <label><input type="checkbox" class="pchk" value="s1" checked> 대기시료채취기록부 (CB-WI-07-01)</label>&nbsp;
+  <label><input type="checkbox" class="pchk" value="s2" checked> 대기측정기록부 1-1 (CB-WI-09-01)</label>&nbsp;
+  <label><input type="checkbox" class="pchk" value="s3" checked> 대기시험기록부 (CB-WI-09-03)</label>
+  <div class="btns" style="justify-content:center"><button class="btn" onclick="printSheets()">선택 서식 인쇄 / PDF 저장</button></div>
+</div>
+<div id="sheets"></div>
+</section>
+
+<!-- ======================= 5. 설정 ======================= -->
+<section class="tab" id="t5">
+<fieldset><legend>측정팀 장비 (피토관 교정표 · 노즐 · 오리피스)</legend>
+<div class="btns"><select id="setTeam"></select><button class="btn line" onclick="addTeam()">팀 추가</button></div>
+<div class="grid">
+  <div class="f"><label>팀 이름</label><input id="st_name"></div>
+  <div class="f"><label>피토관 번호</label><input id="st_pitot"></div>
+  <div class="f"><label>노즐 번호</label><input id="st_nozzleNo"></div>
+  <div class="f"><label>오리피스계수 ΔH@ (mmH₂O)</label><input id="st_dh" type="number" step="any"></div>
+  <div class="f" style="grid-column:span 2"><label>노즐 직경 목록 (mm, 쉼표 구분)</label><input id="st_nozzles"></div>
+</div>
+<table class="t" id="cpTable" style="margin-top:10px;max-width:420px"><thead><tr><th>교정 유속 (m/s)</th><th>피토관 계수</th></tr></thead><tbody></tbody></table>
+<div class="btns"><button class="btn" onclick="saveTeam()">팀 장비 저장</button></div>
+<p class="hint">피토관 계수는 엑셀과 같은 방식으로 적용합니다: 평균 계수로 유속을 먼저 구한 뒤, 교정표에서 그 유속과 가장 가까운 계수를 골라 다시 계산합니다.</p>
+</fieldset>
+
+<fieldset><legend>계산 기준</legend>
+<div class="grid">
+  <div class="f"><label>가스상 흡인량 보정 기준압</label>
+    <select id="st_gasP"><option value="760">760 mmHg 고정 (기존 엑셀·시험기록부 방식)</option><option value="Pa">측정공 대기압 Pa 적용</option></select></div>
+</div>
+<div class="btns"><button class="btn" onclick="saveCalcSet()">계산 기준 저장</button></div>
+</fieldset>
+</section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ================================================================
+   1. 기본값 (엑셀 '팀 및 오리피스 정리' 시트 값)
+   ================================================================ */
+const DEFAULT_SETTINGS = {
+  gasP: "760",
+  teams: [
+    {name:"1팀", pitot:"YNJ0867", nozzleNo:"kt23-0703-04", dh:49.7,
+     nozzles:[4.08,5.55,6.25,6.26,7,7.92,9.27,12.69],
+     cp:[[5.01,0.821],[6.94,0.823],[8.88,0.825],[11.81,0.823],[14.78,0.823],[19.76,0.823],[29.8,0.822],[37.42,0.822]]},
+    {name:"2팀", pitot:"YNJ0872", nozzleNo:"kt23-0703-03", dh:49,
+     nozzles:[3.92,5.42,6.26,7.02,7.9,9.24,12.69],
+     cp:[[4.94,0.805],[6.96,0.82],[8.97,0.823],[12.02,0.827],[15.09,0.827],[20.22,0.831],[30.4,0.832],[30.41,0.833]]},
+    {name:"3팀", pitot:"YNJ0837", nozzleNo:"", dh:49.7,
+     nozzles:[4.08,5.55,6.25,7,7.92,9.27,12.69],
+     cp:[[5,0.82],[6.95,0.822],[8.94,0.823],[11.93,0.823],[14.93,0.823],[19.94,0.823],[29.97,0.822],[29.98,0.823]]}
+  ]
+};
+const GAS_ITEMS = [
+  {name:"암모니아", M:17.031, unit:"ppm", method:"인도페놀법 (UV)"},
+  {name:"황화수소", M:34.08, unit:"ppm", method:"메틸렌블루법 (UV)"},
+  {name:"이황화탄소", M:76.14, unit:"ppm", method:"자외선/가시선 분광법 (UV)"},
+  {name:"염화수소", M:36.46, unit:"ppm", method:"이온크로마토그래피 (IC)"},
+  {name:"염소", M:70.906, unit:"ppm", method:"분광광도법 (UV)"},
+  {name:"플루오린화합물", M:19.00, unit:"ppm", method:"이온크로마토그래피 (IC)"},
+  {name:"브로민화합물", M:79.904, unit:"ppm", method:"이온크로마토그래피 (IC)"},
+  {name:"사이안화수소", M:27.03, unit:"ppm", method:"분광광도법 (UV)"},
+  {name:"페놀화합물", M:94.11, unit:"mg/Sm³", method:"4-아미노안티피린법 (UV)"},
+  {name:"포름알데히드", M:30.026, unit:"ppm", method:"흡광광도법 (UV)"},
+  {name:"아세트알데히드", M:44.053, unit:"ppm", method:"흡광광도법 (UV)"},
+  {name:"벤젠", M:78.11, unit:"ppm", method:"GC"},
+  {name:"스틸렌", M:104.15, unit:"ppm", method:"GC"},
+  {name:"아크롤레인", M:56.06, unit:"ppm", method:"GC/UV"},
+  {name:"아닐린", M:93.13, unit:"mg/Sm³", method:"GC 또는 분광광도법"},
+  {name:"사염화탄소", M:153.82, unit:"ppm", method:"GC"},
+  {name:"클로로포름", M:119.38, unit:"ppm", method:"GC"},
+  {name:"디클로로메탄", M:84.93, unit:"ppm", method:"GC"},
+  {name:"트리클로로에틸렌", M:131.39, unit:"ppm", method:"GC"},
+  {name:"테트라클로로에틸렌", M:165.83, unit:"ppm", method:"GC"},
+  {name:"1,2-디클로로에탄", M:98.96, unit:"ppm", method:"GC"},
+  {name:"에틸벤젠", M:106.17, unit:"ppm", method:"GC"},
+  {name:"아크릴로니트릴", M:53.06, unit:"ppm", method:"GC"},
+  {name:"1,3-부타디엔", M:54.09, unit:"ppm", method:"GC"},
+  {name:"에틸렌옥사이드", M:44.05, unit:"ppm", method:"GC"},
+  {name:"프로필렌옥사이드", M:58.08, unit:"ppm", method:"GC"},
+  {name:"히드라진", M:32.05, unit:"mg/Sm³", method:"분광광도법"},
+  {name:"메르캅탄류", M:"", unit:"mg/Sm³", method:"GC"},
+  {name:"아민류", M:"", unit:"mg/Sm³", method:"GC 또는 IC"},
+  {name:"기타 가스상 물질", M:"", unit:"mg/Sm³", method:"사용자 지정"}
+];
+const METAL_ITEMS = ["카드뮴화합물","납화합물","크로뮴화합물","구리화합물","니켈화합물","아연화합물","비소화합물","베릴륨화합물","수은화합물","망간화합물","철화합물","알루미늄화합물","바나듐화합물","셀렌화합물","안티몬화합물","주석화합물","텔루륨화합물","바륨화합물","기타 금속화합물"];
+const INST_ITEMS = [
+  {name:"황산화물", unit:"ppm", method:"자동측정법"},
+  {name:"질소산화물", unit:"ppm", method:"자동측정법"},
+  {name:"일산화탄소", unit:"ppm", method:"자동측정법"},
+  {name:"총탄화수소", unit:"ppm", method:"불꽃이온화검출기법"},
+  {name:"산소", unit:"%", method:"산소측정기"},
+  {name:"이산화탄소", unit:"%", method:"CO₂ 분석기"},
+  {name:"먼지(TSP)", unit:"mg/Sm³", method:"중량법"},
+  {name:"미세먼지(PM10)", unit:"mg/Sm³", method:"측정기 또는 중량법"},
+  {name:"초미세먼지(PM2.5)", unit:"mg/Sm³", method:"측정기 또는 중량법"},
+  {name:"오존", unit:"ppm", method:"자동측정법"},
+  {name:"기타 자동측정항목", unit:"", method:"사용자 지정"}
+];
+const N_POINTS = 6, N_OPS = 4;
+
+/* ================================================================
+   2. 공통 유틸
+   ================================================================ */
+const $ = id => document.getElementById(id);
+const num = v => (v===""||v===null||v===undefined||isNaN(+v)) ? null : +v;
+// 엑셀 ROUND와 같은 반올림 (0.5 올림)
+function R(x,d){ if(x===null||!isFinite(x)) return null; const p=Math.pow(10,d); return Math.round((x+Math.sign(x)*1e-12)*p)/p; }
+const avgNZ = arr => { const a=arr.map(num).filter(v=>v!==null&&v!==0); return a.length? a.reduce((s,v)=>s+v,0)/a.length : null; };
+const fmt = (v,d) => v===null||v===undefined||!isFinite(v) ? "-" : (d===undefined? String(v) : Number(v).toFixed(d));
+function toast(msg){ const t=$("toast"); t.textContent=msg; t.style.display="block"; clearTimeout(t._h); t._h=setTimeout(()=>t.style.display="none",1800); }
+
+let S = loadSettings();
+let D = blankRecord();
+
+function loadSettings(){ try{ return Object.assign({},DEFAULT_SETTINGS, JSON.parse(localStorage.getItem("mpg_settings")||"{}")); }catch(e){ return JSON.parse(JSON.stringify(DEFAULT_SETTINGS)); } }
+function blankRecord(){
+  return { team:"0", nozzle:"", Os:"20.9", shape:"원형", rhoMode:"gas", moistMode:"auto", dustO2:"1",
+    points: Array.from({length:N_POINTS},()=>({})), gas: GAS_ITEMS.map(g=>({...g})),
+    metal: METAL_ITEMS.map(n=>({name:n, method:"유도결합플라스마/원자발광분광법 (ICP)"})),
+    inst: INST_ITEMS.map(g=>({...g, o2:"1"})), ops: Array.from({length:N_OPS},()=>({})) };
+}
+function normalizeRecord(saved){
+  const base=blankRecord();
+  const out=Object.assign(base, saved||{});
+  if(out.O2===undefined) out.O2=(saved?.O2_1 ?? saved?.O2_2 ?? saved?.O2_3 ?? "");
+  if(out.CO2===undefined) out.CO2=(saved?.CO2_1 ?? saved?.CO2_2 ?? saved?.CO2_3 ?? "");
+  // 기존 저장자료의 짧은 배열도 새 항목 기본값으로 확장하고, 기존 입력값은 보존
+  out.gas=base.gas.map((item,i)=>Object.assign({},item,(saved?.gas||[])[i]||{}));
+  out.metal=base.metal.map((item,i)=>Object.assign({},item,(saved?.metal||[])[i]||{}));
+  out.inst=base.inst.map((item,i)=>Object.assign({},item,(saved?.inst||[])[i]||{}));
+  return out;
+}
+
+/* ================================================================
+   3. 계산 엔진 (엑셀 '외근팀계산기' 계산식과 같은 순서·반올림)
+   ================================================================ */
+function calc(d, s){
+  const o = {}; const team = s.teams[+d.team||0] || s.teams[0];
+  const Pa = num(d.Pa);
+  // 산소·이산화탄소 평균
+  o.O2 = R(num(d.O2),1);
+  o.CO2 = R(num(d.CO2),1);
+  o.N2 = o.O2===null? null : R(100-o.O2-o.CO2,2);
+  o.Os = num(d.Os)===null ? 20.9 : num(d.Os);
+
+  // 측정점 평균
+  const P = d.points||[];
+  o.t = P.reduce((s,p)=>s+(num(p.min)||0),0);
+  o.Ts = R(avgNZ(P.map(p=>p.Ts)),1);
+  o.Ps = R(avgNZ(P.map(p=>p.Ps)),1);
+  o.h  = R(avgNZ(P.map(p=>p.h)),1);
+  const tinAvg = R(avgNZ(P.map(p=>p.Tin)),1), toutAvg = R(avgNZ(P.map(p=>p.Tout)),1);
+  o.Tm = R(avgNZ([tinAvg,toutAvg]),1);
+  o.imp = R(avgNZ(P.map(p=>p.imp)),1);
+  o.vac = R(avgNZ(P.map(p=>p.vac)),1);
+  // 누적 가스미터값 → 측정점별 흡인량
+  let prev = num(d.vmStart)||0; o.pointV=[];
+  P.forEach(p=>{ const c=num(p.cum); if(c===null){o.pointV.push(null);return;} o.pointV.push(Math.max(c-prev,0)); prev=c; });
+  o.Vm = o.pointV.reduce((s,v)=>s+(v||0),0);                 // L (가스미터 읽음값 합계)
+
+  // 수분량
+  if(d.moistMode==="abs"){
+    const Vm = (num(d.mVa)||0)-(num(d.mVb)||0);
+    const Tm = R(((num(d.mTin)||0)+(num(d.mTout)||0))/2,1);
+    const ma = (num(d.ma1)!==null && num(d.ma2)!==null) ? R(num(d.ma2)-num(d.ma1),2) : null;
+    const Pm = R((num(d.mPm)||0)/13.6,2);
+    o.mVm=Vm; o.mTm=Tm; o.ma=ma; o.mPmHg=Pm;
+    o.Xw = (ma===null||!Pa||!Vm) ? null : R((22.4/18*ma*100)/((Vm*273/(273+Tm)*(Pa+Pm)/760)+22.4/18*ma),2);
+  } else {
+    o.Xw = R(avgNZ([d.mA1,d.mA2,d.mA3,d.mA4,d.mA5]),2);
+  }
+
+  // 분자량·밀도
+  o.Md = o.O2===null? null : R(32*o.O2+44*o.CO2+28*o.N2,2);           // ×100 단위 (예: 2883.6)
+  o.Ms = (o.Md===null||o.Xw===null)? null : R(o.Md*(100-o.Xw)/100+o.Xw*18,2);
+  o.r0 = d.rhoMode==="solid" ? 1.3 : (o.Ms===null? null : R(o.Ms/(22.4*100),2));
+  o.PsHg = o.Ps===null? null : R(o.Ps/13.6,2);
+  o.rho = (o.r0===null||o.Ts===null||!Pa)? null : R(o.r0*(273/(273+o.Ts))*((Pa+(o.PsHg||0))/760),2);
+
+  // 유속 (평균 계수 → 교정표 최근접 계수)
+  const cps = team.cp.map(r=>+r[1]).filter(v=>v);
+  o.CpAvg = cps.length? cps.reduce((a,b)=>a+b,0)/cps.length : null;
+  if(o.rho && o.h!==null && o.CpAvg){
+    o.v0 = R(o.CpAvg*Math.sqrt(2*9.81*o.h/o.rho),2);
+    let best=null; team.cp.forEach(r=>{ const dv=Math.abs(+r[0]-o.v0); if(best===null||dv<best.dv) best={dv,cp:+r[1]}; });
+    o.Cp = best? best.cp : o.CpAvg;
+    o.v = R(R(o.Cp*Math.sqrt(2*9.81*o.h/o.rho),4),2);
+  } else { o.Cp=null; o.v=null; }
+
+  // 단면적·유량
+  o.A = d.shape==="사각" ? R((num(d.W)||0)*(num(d.H)||0),3) : (num(d.D)? R(3.14*num(d.D)*num(d.D)/4,3) : null);
+  o.Q = (o.v===null||!o.A||o.Ts===null||o.Xw===null||!Pa)? null :
+        R(o.v*o.A*273/(273+o.Ts)*(Pa+(o.PsHg||0))/760*(100-o.Xw)/100*3600,2);   // Sm³/hr
+  o.Qmin = o.Q===null? null : R(o.Q/60,2);
+  o.O2f = (o.O2===null||o.O2>=21)? 1 : (21-o.Os)/(21-o.O2);
+  o.Qc = o.Q===null? null : R(o.Q/o.O2f,2);
+  o.QcMin = o.Qc===null? null : R(o.Qc/60,2);
+
+  // K-factor
+  o.PsAbs = (!Pa||o.Ps===null)? null : R(Pa+o.Ps/13.6,3);
+  o.dn = num(d.nozzle); o.dh = num(team.dh);
+  o.K = (o.dn&&o.Cp&&o.Ms&&o.Tm!==null&&o.Ts!==null&&o.PsAbs)? R(8.009*1e-5*Math.pow(o.dn,4)*(o.dh*o.Cp*o.Cp*Math.pow(1-R(o.Xw/100,4),2)*(o.Md/o.Ms)*(o.Tm+273)/(o.Ts+273)*(o.PsAbs/Pa)),3) : null;
+  o.dH = (o.K===null||o.h===null)? null : R(o.h*o.K,1);
+  o.pointDH = P.map(p=> (o.K===null||num(p.h)===null)? null : R(o.K*num(p.h),1));
+
+  // 물의 총량·등속흡인계수
+  o.Vic = (o.Xw===null||!o.Vm)? null : R(R(o.Vm*(o.Xw/(100-o.Xw))*(18/22.4),4),2);
+  o.An = o.dn? 3.14*R(Math.pow(o.dn/10,2),8)/4 : null;   // cm²
+  o.I = (o.Vic===null||!o.t||!o.v||!o.An||o.Tm===null||o.dH===null||!o.PsAbs)? null :
+        R((273+o.Ts)*(0.00346*o.Vic+(o.Vm/1000)/(273+o.Tm)*(Pa+o.dH/13.6))*1.667*10000/(o.PsAbs*o.t*o.v*o.An),2);
+
+  // 먼지
+  o.Vs = (!o.Vm||o.Tm===null||!Pa)? null : R((o.Vm/1000)*273/(273+o.Tm)*((Pa+(o.dH||0)/13.6)/760),4);   // Sm³
+  const m1=num(d.dm1), m2=num(d.dm2), mb=num(d.dmb)||0;
+  o.md = (m1===null||m2===null)? null : R(m2-m1-mb,2);
+  o.Ca = (o.md===null||!o.Vs)? null : o.md/o.Vs;
+  o.dust = o.Ca===null? null : R(R(o.Ca*(d.dustO2==="0"?1:o.O2f),4),2);
+
+  // 가스상 흡인량 보정 (엑셀: 760 고정 / 선택: Pa)
+  const baseP = s.gasP==="Pa" && Pa ? Pa : 760;
+  o.gas = (d.gas||[]).map(g=>{
+    const V = (num(g.Va)!==null&&num(g.Vb)!==null)? Math.max(num(g.Va)-num(g.Vb),0) : null;
+    const Tg = R(avgNZ([g.Tin,g.Tout]),1);
+    const Vs = (V===null||Tg===null)? null : R(V*(273/(273+Tg))*((baseP+R((num(g.Pm)||0)/13.6,2))/760),4);
+    const a=num(g.a), b=num(g.b)||0, Vl=num(g.V), dil=num(g.dil)||1, M=num(g.M);
+    let C=null;
+    if(a!==null&&Vl&&Vs){
+      C = g.unit==="mg/Sm³" ? (a-b)*Vl*dil/Vs : (M? (a-b)*Vl*dil*22.4/(Vs*M) : null);
+      if(C!==null && g.o2==="1") C = C*o.O2f;
+    }
+    return {V, Tg, Vs, C: C===null? null : R(C,3)};
+  });
+  o.metal = (d.metal||[]).map(m=>{
+    const a=num(m.a), b=num(m.b)||0, Vl=num(m.V), dil=num(m.dil)||1;
+    return {C: (a===null||!Vl||!o.Vs)? null : R((a-b)*Vl*dil/1000/o.Vs,4)};
+  });
+  o.inst = (d.inst||[]).map(i=>{
+    const av = R(avgNZ([i.r1,i.r2,i.r3]),2);
+    return {avg:av, C: av===null? null : R(av*(i.o2==="1"?o.O2f:1),2)};
+  });
+
+  // 측정점 위치 (원형, 엑셀 규칙)
+  o.points=[];
+  const Dd=num(d.D), fl=num(d.flange)||0;
+  if(d.shape!=="사각" && Dd){
+    const set = Dd<=0.54 ? [[0.5*2]] : Dd<=1?[0.707]:Dd<=2?[0.5,0.866]:Dd<=4?[0.408,0.707,0.913]:Dd<=4.5?[0.354,0.612,0.791,0.935]:[0.316,0.548,0.707,0.837,0.949];
+    if(Dd<=0.54) o.points=[R(0.5*Dd+fl,2)];
+    else o.points = set.map(k=>R((1-k)*(Dd/2)+fl,2));
+  }
+  return o;
+}
+
+/* ================================================================
+   4. 입력 화면 구성·바인딩
+   ================================================================ */
+function buildTables(){
+  // 측정점
+  const tb=$("ptTable").tBodies[0]; tb.innerHTML="";
+  for(let i=0;i<N_POINTS;i++){
+    tb.insertAdjacentHTML("beforeend",`<tr><td>${i+1}</td>
+      <td><input data-p="${i}" data-f="time" placeholder="00:00~00:00"></td>
+      ${["min","vac","Ts","Ps","h"].map(f=>`<td><input data-p="${i}" data-f="${f}" type="number" step="any"></td>`).join("")}
+      <td><input id="pdh_${i}" readonly></td>
+      ${["cum","Tin","Tout","imp"].map(f=>`<td><input data-p="${i}" data-f="${f}" type="number" step="any"></td>`).join("")}</tr>`);
+  }
+  // 가스상(현장)
+  const gf=$("gasField").tBodies[0]; gf.innerHTML="";
+  D.gas.forEach((g,i)=>{
+    gf.insertAdjacentHTML("beforeend",`<tr><td><input data-g="${i}" data-f="name" value=""></td>
+      <td><input data-g="${i}" data-f="time" placeholder="00:00~00:00"></td>
+      ${["Vb","Va","Tin","Tout","Pm"].map(f=>`<td><input data-g="${i}" data-f="${f}" type="number" step="any"></td>`).join("")}
+      <td><input id="gV_${i}" readonly></td><td><input id="gVs_${i}" readonly></td></tr>`);
+  });
+  // 가스상(분석)
+  const gl=$("gasLab").tBodies[0]; gl.innerHTML="";
+  D.gas.forEach((g,i)=>{
+    gl.insertAdjacentHTML("beforeend",`<tr><td><input id="gname_${i}" readonly></td>
+      <td><input data-g="${i}" data-f="M" type="number" step="any"></td>
+      ${["a","b","V","dil"].map(f=>`<td><input data-g="${i}" data-f="${f}" type="number" step="any"></td>`).join("")}
+      <td><select data-g="${i}" data-f="unit"><option>ppm</option><option>mg/Sm³</option></select></td>
+      <td><select data-g="${i}" data-f="o2"><option value="0">미적용</option><option value="1">적용</option></select></td>
+      <td><input data-g="${i}" data-f="method"></td><td><input data-g="${i}" data-f="limit"></td><td><input id="gC_${i}" readonly></td></tr>`);
+  });
+  // 중금속
+  const ml=$("metalLab").tBodies[0]; ml.innerHTML="";
+  D.metal.forEach((m,i)=>{
+    ml.insertAdjacentHTML("beforeend",`<tr><td><input data-m="${i}" data-f="name"></td>
+      ${["a","b","V","dil"].map(f=>`<td><input data-m="${i}" data-f="${f}" type="number" step="any"></td>`).join("")}
+      <td><input data-m="${i}" data-f="method"></td><td><input data-m="${i}" data-f="limit"></td><td><input id="mC_${i}" readonly></td></tr>`);
+  });
+  // 자동측정(현장)
+  const inf=$("instField").tBodies[0]; inf.innerHTML="";
+  D.inst.forEach((g,i)=>{
+    inf.insertAdjacentHTML("beforeend",`<tr><td><input data-i="${i}" data-f="name"></td>
+      <td><input data-i="${i}" data-f="time" placeholder="00:00~00:00"></td>
+      ${["r1","r2","r3"].map(f=>`<td><input data-i="${i}" data-f="${f}" type="number" step="any"></td>`).join("")}
+      <td><input id="iA_${i}" readonly></td></tr>`);
+  });
+  // 자동측정(분석)
+  const il=$("instLab").tBodies[0]; il.innerHTML="";
+  D.inst.forEach((g,i)=>{
+    il.insertAdjacentHTML("beforeend",`<tr><td><input id="iname_${i}" readonly></td>
+      <td><select data-i="${i}" data-f="o2"><option value="1">적용</option><option value="0">미적용</option></select></td>
+      <td><input data-i="${i}" data-f="method"></td><td><input data-i="${i}" data-f="limit"></td><td><input id="iC_${i}" readonly></td></tr>`);
+  });
+  // 시설가동
+  const op=$("opsTable").tBodies[0]; op.innerHTML="";
+  for(let i=0;i<N_OPS;i++) op.insertAdjacentHTML("beforeend",`<tr>${["name","fuel","prod","inc","raw","kind","unit"].map(f=>`<td><input data-o="${i}" data-f="${f}"></td>`).join("")}</tr>`);
+}
+
+function fillForm(){
+  document.querySelectorAll("[data-k]").forEach(el=>{ el.value = D[el.dataset.k] ?? (el.tagName==="SELECT"? el.options[0].value : "");
+    if(el.tagName==="SELECT" && D[el.dataset.k]===undefined) D[el.dataset.k]=el.value; });
+  document.querySelectorAll("[data-p]").forEach(el=>{ el.value = (D.points[el.dataset.p]||{})[el.dataset.f] ?? ""; });
+  document.querySelectorAll("[data-g]").forEach(el=>{ el.value = (D.gas[el.dataset.g]||{})[el.dataset.f] ?? (el.tagName==="SELECT"? el.options[0].value:""); });
+  document.querySelectorAll("[data-m]").forEach(el=>{ el.value = (D.metal[el.dataset.m]||{})[el.dataset.f] ?? ""; });
+  document.querySelectorAll("[data-i]").forEach(el=>{ el.value = (D.inst[el.dataset.i]||{})[el.dataset.f] ?? (el.tagName==="SELECT"? el.options[0].value:""); });
+  document.querySelectorAll("[data-o]").forEach(el=>{ el.value = (D.ops[el.dataset.o]||{})[el.dataset.f] ?? ""; });
+  refreshNozzles(); refresh();
+}
+
+function onInput(e){
+  const el=e.target, ds=el.dataset;
+  if(ds.k!==undefined){ D[ds.k]=el.value; if(ds.k==="team"){ refreshNozzles(); } }
+  else if(ds.p!==undefined){ D.points[ds.p][ds.f]=el.value; }
+  else if(ds.g!==undefined){ D.gas[ds.g][ds.f]=el.value; }
+  else if(ds.m!==undefined){ D.metal[ds.m][ds.f]=el.value; }
+  else if(ds.i!==undefined){ D.inst[ds.i][ds.f]=el.value; }
+  else if(ds.o!==undefined){ D.ops[ds.o][ds.f]=el.value; }
+  else return;
+  refresh();
+}
+document.addEventListener("input", onInput);
+document.addEventListener("change", onInput);
+
+function refreshTeams(){
+  const ts=$("teamSel"); ts.innerHTML = S.teams.map((t,i)=>`<option value="${i}">${t.name}</option>`).join("");
+  ts.value = D.team||"0";
+  const st=$("setTeam"); st.innerHTML = S.teams.map((t,i)=>`<option value="${i}">${t.name}</option>`).join("");
+}
+function refreshNozzles(){
+  const t = S.teams[+D.team||0]||S.teams[0];
+  const ns=$("nozzleSel"); ns.innerHTML = `<option value="">선택</option>`+t.nozzles.map(n=>`<option value="${n}">${n}</option>`).join("");
+  ns.value = D.nozzle||"";
+}
+
+/* ================================================================
+   5. 결과 표시
+   ================================================================ */
+let C = {};
+function refresh(){
+  C = calc(D,S);
+  C.pointDH.forEach((v,i)=>{ const el=$("pdh_"+i); if(el) el.value = v===null?"":v; });
+  C.gas.forEach((g,i)=>{ $("gV_"+i).value = g.V===null?"":R(g.V,2); $("gVs_"+i).value = g.Vs===null?"":g.Vs;
+    $("gname_"+i).value = D.gas[i].name||""; $("gC_"+i).value = g.C===null?"":g.C+" "+(D.gas[i].unit||""); });
+  C.metal.forEach((m,i)=>{ $("mC_"+i).value = m.C===null?"":m.C; });
+  C.inst.forEach((m,i)=>{ $("iA_"+i).value = m.avg===null?"":m.avg; $("iname_"+i).value = D.inst[i].name||""; $("iC_"+i).value = m.C===null?"":m.C+" ppm"; });
+  $("out_md").value = C.md===null? "" : C.md;
+  $("pointHint").textContent = C.points.length ? "원형 굴뚝 측정점 위치(측정공 끝단 기준, m): "+C.points.map((p,i)=>`${i+1}지점 ${p}`).join(" / ") : "";
+  renderCalc(); renderSheets();
+}
+
+function cv(label,val,unit,bad){ return `<div class="cv${bad?" bad":""}"><span>${label}</span><b>${fmt(val)}${val===null||val===undefined?"":" "+unit}</b></div>`; }
+function renderCalc(){
+  const c=C;
+  $("calcMain").innerHTML = [
+    cv("산소 평균 O₂",c.O2,"%"), cv("이산화탄소 평균 CO₂",c.CO2,"%"), cv("수분량 Xw",c.Xw,"%"),
+    cv("배출가스 온도 Ts",c.Ts,"℃"), cv("배출가스 정압 Ps",c.Ps,"mmH₂O"), cv("배출가스 동압 h",c.h,"mmH₂O"),
+    cv("건분자량 Md (×100)",c.Md,""), cv("습분자량 Ms (×100)",c.Ms,""), cv("배출가스 밀도 ρ",c.rho,"kg/m³"),
+    cv("적용 피토관 계수 Cp",c.Cp,""), cv("배출가스 유속 v",c.v,"m/s"), cv("굴뚝 단면적 A",c.A,"m²"),
+    cv("배출가스 유량 (산소보정 전)",c.Qmin,"Sm³/min"), cv("배출가스 유량 (산소보정 후)",c.QcMin,"Sm³/min"), cv("배출가스 유량 (보정 전)",c.Q,"Sm³/hr")
+  ].join("");
+  const isoBad = c.I!==null && (c.I<90||c.I>110);
+  $("calcIso").innerHTML = [
+    cv("K-factor",c.K,""), cv("평균 오리피스압차 ΔH",c.dH,"mmH₂O"), cv("총 채취시간 t",c.t||null,"min"),
+    cv("가스미터 흡인량 Vm",c.Vm||null,"L"), cv("가스미터 평균온도 Tm",c.Tm,"℃"), cv("임핀저·실리카젤 물의 총량 Vic",c.Vic,"mL"),
+    cv("등속흡인계수 I (90~110%)",c.I,"%",isoBad), cv("먼지 시료채취량 Vs",c.Vs,"Sm³"), cv("포집 먼지량 md",c.md,"mg"),
+    cv("먼지 농도 (실측)",c.Ca===null?null:R(c.Ca,2),"mg/Sm³"), cv("먼지 농도 (보고)",c.dust,"mg/Sm³")
+  ].join("");
+  $("calcFormula").innerHTML = formulas().map(f=>`<div class="formula">${f}</div>`).join("");
+  $("calcConcentration").innerHTML = [
+    ...D.gas.map((g,i)=>{const r=C.gas[i]; return g.name&&r.C!==null?`<div class="formula"><b>${g.name}</b> = ${g.unit==="mg/Sm³"?"(a−b)×V×희석배수÷Vs":"(a−b)×V×희석배수×22.4÷(Vs×M)"}${g.o2==="1"?" × 산소보정계수":""} = <b>${r.C} ${g.unit}</b></div>`:"";}),
+    ...D.metal.map((m,i)=>{const r=C.metal[i]; return m.name&&r.C!==null?`<div class="formula"><b>${m.name}</b> = (a−b)×V×희석배수÷1000÷Vs = <b>${r.C} mg/Sm³</b></div>`:"";}),
+    ...D.inst.map((m,i)=>{const r=C.inst[i]; return m.name&&r.C!==null?`<div class="formula"><b>${m.name}</b> = 측정값 평균${m.o2==="1"?" × 산소보정계수":""} = <b>${r.C} ${m.unit||"ppm"}</b></div>`:"";})
+  ].join("") || "입력값을 입력하면 농도계산 결과가 표시됩니다.";
+
+}
+
+function formulas(){
+  const c=C, d=D, Pa=num(d.Pa);
+  const L=[];
+  if(c.Md!==null) L.push(`건분자량 Md = 32×${c.O2} + 44×${c.CO2} + 28×${c.N2} = ${c.Md}`);
+  if(c.Ms!==null) L.push(`습분자량 Ms = ${c.Md}×(100−${c.Xw})/100 + ${c.Xw}×18 = ${c.Ms}`);
+  if(c.rho!==null) L.push(`배출가스밀도 ρ = ${c.r0}×273/(273+${c.Ts})×(${Pa}+${c.PsHg})/760 = ${c.rho} kg/m³`);
+  if(c.v!==null) L.push(`배출가스유속 v = ${c.Cp}×√(2×9.81×${c.h}/${c.rho}) = ${c.v} m/s`);
+  if(c.Q!==null) L.push(`배출가스유량 Q = ${c.v}×${c.A}×273/(273+${c.Ts})×(${Pa}+${c.PsHg})/760×(100−${c.Xw})/100×3600 = ${c.Q} Sm³/hr (${c.Qmin} Sm³/min)`);
+  if(c.K!==null) L.push(`K-factor = 8.009×10⁻⁵×${c.dn}⁴×{${c.dh}×${c.Cp}²×(1−${R(c.Xw/100,4)})²×(${c.Md}/${c.Ms})×(${c.Tm}+273)/(${c.Ts}+273)×(${c.PsAbs}/${Pa})} = ${c.K}`);
+  if(c.Vic!==null) L.push(`물의 총량 Vic = ${c.Vm}×(${c.Xw}/(100−${c.Xw}))×(18/22.4) = ${c.Vic} mL`);
+  if(c.I!==null) L.push(`등속흡인계수 I = (273+${c.Ts})×[0.00346×${c.Vic} + ${R(c.Vm/1000,4)}/(273+${c.Tm})×(${Pa}+${c.dH}/13.6)]×1.667×10⁴ / (${c.PsAbs}×${c.t}×${c.v}×${R(c.An,4)}) = ${c.I} %`);
+  if(c.Vs!==null) L.push(`먼지 시료채취량 Vs = ${R(c.Vm/1000,4)}×273/(273+${c.Tm})×(${Pa}+${c.dH}/13.6)/760 = ${c.Vs} Sm³`);
+  if(c.dust!==null) L.push(`먼지농도 C = ${c.md}/${c.Vs}${d.dustO2==="0"?"":` × (21−${c.Os})/(21−${c.O2})`} = ${c.dust} mg/Sm³`);
+  const base = S.gasP==="Pa" && Pa ? Pa : 760;
+  D.gas.forEach((g,i)=>{ const r=c.gas[i]; if(!g.name||r.Vs===null) return;
+    let s=`${g.name}: Vs = ${R(r.V,2)}×273/(273+${r.Tg})×(${base}+${R((num(g.Pm)||0)/13.6,2)})/760 = ${r.Vs} L`;
+    if(r.C!==null) s += g.unit==="mg/Sm³" ? `\n   C = (${g.a}−${num(g.b)||0})×${g.V}×${num(g.dil)||1}/${r.Vs}${g.o2==="1"?" × 산소보정":""} = ${r.C} mg/Sm³`
+                                          : `\n   C = (${g.a}−${num(g.b)||0})×${g.V}×${num(g.dil)||1}×22.4/(${r.Vs}×${g.M})${g.o2==="1"?" × 산소보정":""} = ${r.C} ppm`;
+    L.push(s);
+  });
+  return L;
+}
+
+/* ================================================================
+   6. 출력 서식
+   ================================================================ */
+function v(x){ return (x===null||x===undefined||x==="")? "" : x; }
+function foot(code){ return `<div class="foot"><span>${code} Rev. 00</span><span>(재)맑고푸른곶</span><span>A4(210×297mm)</span></div>`; }
+function renderSheets(){
+  const d=D,c=C;
+  const tm = (d.timeFrom||"")+" ~ "+(d.timeTo||"");
+  const ptRows = d.points.map((p,i)=>`<tr><td>${i+1}</td><td>${v(p.time)}</td><td>${v(p.min)}</td><td>${v(p.vac)}</td><td>${v(p.Ts)}</td><td>${v(p.Ps)}</td><td>${v(p.h)}</td><td>${v(c.pointDH[i])}</td><td>${c.pointV[i]===null?"":c.pointV[i]}</td><td>${v(p.Tin)}</td><td>${v(p.Tout)}</td><td>${v(p.imp)}</td></tr>`).join("");
+  const gasRows = d.gas.filter(g=>g.name).map(g=>{ const r=c.gas[d.gas.indexOf(g)]; return `<tr><td>${g.name}</td><td>${v(g.time)}</td><td>${v(g.Vb)}</td><td>${v(g.Va)}</td><td>${r.V===null?"":R(r.V,2)}</td><td>${v(g.Pm)}</td><td>${v(g.Tin)}</td><td>${v(g.Tout)}</td><td>${(r.V&&g.time)?"":""}</td></tr>`; }).join("");
+
+  // --- s1: 대기시료채취기록부 ---
+  const s1 = `
+  <div class="sheet" data-s="s1"><div class="code">[별첨 서식 : CB-WI-07-01A]</div><h2>대기시료채취기록부</h2>
+  <table><tr><th colspan="6">측정의뢰기관 정보</th></tr>
+   <tr><th>업소명</th><td colspan="2">${v(d.company)}</td><th>시료채취일</th><td colspan="2">${v(d.date)}</td></tr>
+   <tr><th>배출시설명</th><td colspan="2">${v(d.facility)} ${v(d.facilityNo)}</td><th>시료접수번호</th><td colspan="2">${v(d.sampleNo)}</td></tr>
+   <tr><th>방지시설명</th><td colspan="2">${v(d.prevent)}</td><th>용량 (m³/min)</th><td colspan="2">${v(d.preventCap)}</td></tr></table>
+  <table><tr><th colspan="2">굴뚝 정보</th><th colspan="4">측정정보</th></tr>
+   <tr><td>${d.shape==="사각"?"□ 원형 ■ 사각":"■ 원형 □ 사각"}</td><td>플랜지 ${v(d.flange)} m</td><th>측정시간</th><td colspan="3">${tm}</td></tr>
+   <tr><td>직경 ${v(d.D)} m</td><td>가로 ${v(d.W)} / 세로 ${v(d.H)} m</td><th>O₂ / CO₂ (%)</th><td>${v(c.O2)} / ${v(c.CO2)}</td><th>오리피스미터(ΔH@)</th><td>${v(c.dh)}</td></tr>
+   <tr><th colspan="2">결과산정</th><th>측정공 대기압 (mmHg)</th><td>${v(d.Pa)}</td><th>피토관 계수</th><td>${v(c.Cp)}</td></tr>
+   <tr><th>K-factor</th><td>${v(c.K)}</td><th>흡입노즐직경 (mm)</th><td>${v(d.nozzle)}</td><th>등속흡입계수 (%)</th><td>${v(c.I)}</td></tr>
+   <tr><th>물의 총량 VIC (mL)</th><td>${v(c.Vic)}</td><th>누출 전/후 (L)</th><td>${v(d.leakB)} / ${v(d.leakA)}</td><th>여과지번호</th><td>${v(d.filterNo)}</td></tr>
+   <tr><th>배출가스 밀도 (kg/m³)</th><td>${v(c.rho)}</td><td colspan="4"></td></tr></table>
+  <table><tr><th>기상</th><th>기온 (℃)</th><th>습도 (%)</th><th>대기압 (mmHg)</th><th>풍향</th><th>풍속 (m/s)</th></tr>
+   <tr><td>${v(d.weather)}</td><td>${v(d.airT)}</td><td>${v(d.airRH)}</td><td>${v(d.airP)}</td><td>${v(d.windDir)} 풍</td><td>${v(d.windSpd)}</td></tr></table>
+  <div class="sub">⦁ 수분량 시료채취기록부 (${d.moistMode==="abs"?"■ 흡습관법 □ 자동측정법":"□ 흡습관법 ■ 자동측정법"})</div>
+  <table><tr><th>전 흡입량</th><th>후 흡입량</th><th>흡인량 (L)</th><th>온도 in/out (℃)</th><th>가스미터압력 (mmH₂O)</th><th>ma1 (g)</th><th>ma2 (g)</th><th>ma (g)</th><th>수분량 (%)</th></tr>
+   <tr><td>${v(d.mVb)}</td><td>${v(d.mVa)}</td><td>${d.moistMode==="abs"?v(c.mVm):""}</td><td>${v(d.mTin)} / ${v(d.mTout)}</td><td>${v(d.mPm)}</td><td>${v(d.ma1)}</td><td>${v(d.ma2)}</td><td>${d.moistMode==="abs"?v(c.ma):""}</td><td>${v(c.Xw)}</td></tr>
+   ${d.moistMode==="auto"?`<tr><th>자동측정</th><td colspan="8" class="l">${[d.mA1,d.mA2,d.mA3,d.mA4,d.mA5].filter(x=>x).join(" / ")} → 평균 ${v(c.Xw)} %</td></tr>`:""}</table>
+  <div class="sub">시설가동정보</div>
+  <table><tr><th>배출시설</th><th>연료 및 원료 사용량</th><th>생산품 / 생산량</th></tr>
+   ${d.ops.filter(o=>o.name).map(o=>`<tr><td>${v(o.name)}</td><td>${[o.fuel,o.raw].filter(x=>x).join(", ")} ${v(o.unit)}</td><td>${v(o.prod)}</td></tr>`).join("")||"<tr><td></td><td></td><td></td></tr>"}
+   <tr><th>분석항목</th><td colspan="2" class="l">${["먼지",...d.gas.filter(g=>g.name&&(g.Va||g.a)).map(g=>g.name),...d.inst.filter(i=>i.name&&i.r1).map(i=>i.name)].join(", ")}</td></tr></table>
+  ${foot("CB-WI-07")}</div>
+  <div class="sheet" data-s="s1"><div class="code">[별첨 서식 : CB-WI-07-01B]</div><h2>대기시료채취기록부</h2>
+  <div class="sub">⦁ 입자상 시료채취기록부</div>
+  <table><tr><th>측정점</th><th>측정시간</th><th>채취시간<br>(min)</th><th>진공게이지압<br>(mmHg)</th><th>배출가스온도<br>(℃)</th><th>정압<br>(mmH₂O)</th><th>동압<br>(mmH₂O)</th><th>오리피스압차<br>(mmH₂O)</th><th>입자흡입량<br>(L)</th><th>가스미터<br>in (℃)</th><th>가스미터<br>out (℃)</th><th>임핀저출구<br>(℃)</th></tr>
+   ${ptRows}<tr><th colspan="2">합계</th><td>${c.t||""}</td><td colspan="5"></td><td>${c.Vm||""}</td><td colspan="3"></td></tr>
+   <tr><th colspan="2">평균</th><td></td><td>${v(c.vac)}</td><td>${v(c.Ts)}</td><td>${v(c.Ps)}</td><td>${v(c.h)}</td><td>${v(c.dH)}</td><td></td><td colspan="2">${v(c.Tm)}</td><td>${v(c.imp)}</td></tr></table>
+  <div class="sub">⦁ 가스상 시료채취기록부</div>
+  <table><tr><th>측정항목명</th><th>채취시간</th><th>전 흡인량</th><th>후 흡인량</th><th>흡인량 (L)</th><th>가스미터압력<br>(mmH₂O)</th><th>온도 in (℃)</th><th>온도 out (℃)</th><th>비고</th></tr>${gasRows||"<tr><td colspan='9'>&nbsp;</td></tr>"}</table>
+  <table><tr><th>시료접수번호</th><td>${v(d.sampleNo)}</td><th>시료 채취자 A</th><td>${v(d.samplerA)} (인)</td><th>시료 채취자 B</th><td>${v(d.samplerB)} (인)</td></tr>
+   <tr><th>기술책임자</th><td>${v(d.techMgr)} (인)</td><th>환경기술인</th><td colspan="3">${v(d.envTech)} (인) / 代</td></tr></table>
+  ${foot("CB-WI-07")}</div>`;
+
+  // --- s2: 측정기록부 1-1 ---
+  const results = [];
+  if(c.dust!==null) results.push(["먼지",d.dustLimit,c.dust+" mg/Sm³",tm,"반자동식 측정법"]);
+  d.inst.forEach((i,k)=>{ if(i.name&&c.inst[k].C!==null) results.push([i.name,i.limit,c.inst[k].C+" ppm",i.time,i.method]); });
+  d.gas.forEach((g,k)=>{ if(g.name&&c.gas[k].C!==null) results.push([g.name,g.limit,c.gas[k].C+" "+g.unit,g.time,g.method]); });
+  d.metal.forEach((m,k)=>{ if(m.name&&c.metal[k].C!==null) results.push([m.name,m.limit,c.metal[k].C+" mg/Sm³",tm,m.method]); });
+  while(results.length<8) results.push(["","","","",""]);
+  const s2 = `
+  <div class="sheet official-1-1" data-s="s2">
+    <div class="code">1-1. 대기분야 측정기록부</div>
+    <div style="text-align:right;font-size:9px">발급번호 : ${v(d.sampleNo)}</div>
+    <h2>대기 측정기록부</h2>
+    <div class="official-note">(이 서식은 「대기환경보전법 시행규칙」 별표 8 대기오염물질의 배출허용기준 항목을 굴뚝에서 측정할 경우에 작성한다.)</div>
+    <table class="official-head">
+      <tr><th rowspan="4" class="vertical">①<br>의뢰인</th><th>상 호(사업장명)</th><td colspan="2">${v(d.company)}</td><th rowspan="4" class="vertical">②<br>일반현황</th><th>업 종</th><td>${v(d.industry)}</td></tr>
+      <tr><th>사업장소재지(주소)</th><td colspan="2">${v(d.address)}</td><th>시설 종류</th><td>${v(d.facility)}</td></tr>
+      <tr><th>대표자(의뢰인)</th><td colspan="2">${v(d.ceo)}</td><th>사업장 종별</th><td>${v(d.siteClass)}</td></tr>
+      <tr><th>환경기술인</th><td colspan="2">${v(d.envTech)}</td><th></th><td></td></tr>
+      <tr><th class="vertical">③<br>의뢰내용</th><th colspan="6" class="left">측 정 용 도　${v(d.purpose)}</th></tr>
+      <tr><th rowspan="2" class="vertical">의뢰내용</th><th>굴뚝</th><th>굴뚝 명칭</th><th>높이</th><th>안지름(측정공)</th><th>굴뚝 종별</th><td></td></tr>
+      <tr><th></th><td>${v(d.stackName)}</td><td>${v(d.stackHeight)} m</td><td>${d.shape==="사각"?v(d.W)+" × "+v(d.H):v(d.D)} m</td><td>${v(d.stackClass)}종</td><td></td></tr>
+      <tr><th class="vertical">의뢰 항목</th><td colspan="6" class="left">${results.filter(r=>r[0]).map(r=>r[0]).join(", ")}</td></tr>
+    </table>
+    <table class="official-weather">
+      <tr><th rowspan="2" class="vertical">④<br>시료채취</th><th>날씨</th><th>기온</th><th>습도</th><th>기압</th><th>풍향</th><th>풍속</th></tr>
+      <tr><td>${v(d.weather)}</td><td>${v(d.airT)} ℃</td><td>${v(d.airRH)} %</td><td>${v(d.airP)} mmHg</td><td>${v(d.windDir)}</td><td>${v(d.windSpd)} m/s</td></tr>
+      <tr><th rowspan="3">배출가스</th><th>표준산소농도</th><th>실측산소농도</th><th>배출가스유량<br>(산소보정 전)</th><th>배출가스유량<br>(산소보정 후)</th><th>수분량</th><th>배출가스온도</th></tr>
+      <tr><td>${v(c.Os)} %</td><td>${v(c.O2)} %</td><td>${v(c.Qmin)} S㎥/분</td><td>${v(c.QcMin)} S㎥/분</td><td>${v(c.Xw)} %</td><td>${v(c.Ts)} ℃</td></tr>
+      <tr><th colspan="2">배출가스 유속</th><th colspan="2">기타</th><td colspan="2">${v(c.v)} m/s</td></tr>
+      <tr><th rowspan="2">방지시설</th><th colspan="2">명 칭</th><th colspan="3">대 상 물 질</th><th>방지효율</th></tr>
+      <tr><td colspan="2">${v(d.prevent)}</td><td colspan="3">${v(d.preventTarget)}</td><td>${v(d.preventEfficiency)} %</td></tr>
+      <tr><th>채취일시</th><td colspan="3" class="left">채취 일 : ${v(d.date)}<br>채취 시간: ${tm}</td><th>시료채취자</th><td colspan="2">${v(d.samplerA)} (서명)<br>${v(d.samplerB)} (서명)</td></tr>
+    </table>
+    <table class="official-ops">
+      <tr><th rowspan="${Math.max(2,N_OPS+1)}" class="vertical">⑤<br>시설가동상황</th><th colspan="6">측정당시 시간당 사용(생산)량</th><th rowspan="2">방지시설 명칭</th></tr>
+      <tr><th>배출시설 명칭</th><th>연료사용량</th><th>제품생산량</th><th>소각량</th><th>원료투입량</th><th>종류 / 단위</th></tr>
+      ${Array.from({length:N_OPS},(_,i)=>{const o=d.ops[i]||{};return `<tr><td>${v(o.name)}</td><td>${v(o.fuel)}</td><td>${v(o.prod)}</td><td>${v(o.inc)}</td><td>${v(o.raw)}</td><td>${v(o.kind)} / ${v(o.unit)}</td><td>${v(d.prevent)}</td></tr>`;}).join("")}
+    </table>
+    <table class="official-results">
+      <tr><th rowspan="${results.length+2}" class="vertical">⑥<br>측정분석결과</th><th>측정항목</th><th>허용 기준</th><th>측정분석값</th><th>측정시간</th><th>측정분석방법<br>(기기명)</th><th>비 고</th></tr>
+      ${results.map(r=>`<tr><td>${r[0]}</td><td>${v(r[1])}</td><td>${r[2]}</td><td>${v(r[3])}</td><td>${v(r[4])}</td><td></td></tr>`).join("")}
+      <tr><th>분석기간</th><td colspan="2">${v(d.anaFrom)} ~ ${v(d.anaTo)}</td><th>분석기술인</th><td colspan="2">${v(d.analyst)} (서명)</td></tr>
+      <tr><th></th><td colspan="2"></td><th>책임기술인</th><td colspan="2">${v(d.anaMgr)} (서명)</td></tr>
+    </table>
+    <table class="official-opinion"><tr><th class="vertical">⑦<br>종합의견</th><td class="left">${v(d.opinion)}</td></tr></table>
+    <div class="official-declaration">위와 같이 측정분석결과를 사실대로 기록합니다.<br><br>년　　월　　일<br><br>상호　(재)맑고푸른곶<br>소재지 및 연락처<br>대표자 성명　　　　　　　　　(서명 또는 인)</div>
+    <div class="official-foot">※ 의뢰사항과 관련이 없는 란은 “해당 없음”으로 기재됩니다.　※ 액체연료는 황함유량을 (　)안에 %단위로 표기하여 주시기 바랍니다.</div>
+  </div>`;
+  // --- s3: 시험기록부 ---
+  const s3 = `
+  <div class="sheet" data-s="s3"><div class="code">[별첨 서식 : CB-WI-09-03A]</div><h2>대 기 시 험 기 록 부</h2>
+  <table><tr><th>시료채취번호</th><td>${v(d.sampleNo)}</td><th>시료채취일시</th><td>${v(d.date)} ${tm}</td><th>분석일시</th><td>${v(d.anaFrom)} ~ ${v(d.anaTo)}</td></tr>
+   <tr><th>업소명</th><td>${v(d.company)}</td><th>배출시설</th><td>${v(d.facility)} ${v(d.facilityNo)}</td><th>방지시설</th><td>${v(d.prevent)}</td></tr></table>
+  <table><tr><th colspan="8">1. 연도조건 · 2. 기상조건 · 3. 측정조건</th></tr>
+   <tr><th>연도모양</th><td>${v(d.shape)}</td><th>연도직경 (m)</th><td>${v(d.D)}</td><th>기온/습도</th><td>${v(d.airT)}℃ / ${v(d.airRH)}%</td><th>대기압</th><td>${v(d.airP)}</td></tr>
+   <tr><th>피토관계수</th><td>${v(c.Cp)}</td><th>정압</th><td>${v(c.Ps)}</td><th>동압</th><td>${v(c.h)}</td><th>배출가스온도</th><td>${v(c.Ts)}</td></tr>
+   <tr><th>노즐내경</th><td>${v(d.nozzle)}</td><th>K-factor</th><td>${v(c.K)}</td><th>오리피스압차</th><td>${v(c.dH)}</td><th>ΔH@</th><td>${v(c.dh)}</td></tr>
+   <tr><th>O₂/CO₂/N₂</th><td colspan="3">${v(c.O2)} / ${v(c.CO2)} / ${v(c.N2)}</td><th>수분량</th><td>${v(c.Xw)}</td><th>시료채취량 (L)</th><td>${c.Vm||""}</td></tr></table>
+  <table><tr><th>4. 계산</th></tr>${formulas().map(f=>`<tr><td class="eq">${f.replace(/\n/g,"<br>")}</td></tr>`).join("")}</table>
+  <table><tr><th>포집 전 질량 m1</th><th>포집 후 질량 m2</th><th>Blank</th><th>포집먼지량 md</th><th>시료채취량 Vs (Sm³)</th><th>먼지농도 (mg/Sm³)</th></tr>
+   <tr><td>${v(d.dm1)}</td><td>${v(d.dm2)}</td><td>${v(d.dmb)}</td><td>${v(c.md)}</td><td>${v(c.Vs)}</td><td>${v(c.dust)}</td></tr></table>
+  <table><tr><th colspan="7">5. 오염물질 농도 계산 결과</th></tr>
+  <tr><th>항목</th><th>시료농도 a</th><th>바탕 b</th><th>시료액량 V</th><th>희석배수</th><th>시료채취량 Vs</th><th>계산농도</th></tr>
+  ${d.gas.map((g,k)=>{const r=c.gas[k];return g.name&&r.C!==null?`<tr><td>${v(g.name)}</td><td>${v(g.a)}</td><td>${v(g.b)}</td><td>${v(g.V)}</td><td>${v(g.dil)}</td><td>${v(r.Vs)}</td><td>${v(r.C)} ${v(g.unit)}</td>`:""}).join("")}
+  ${d.metal.map((m,k)=>{const r=c.metal[k];return m.name&&r.C!==null?`<tr><td>${v(m.name)}</td><td>${v(m.a)}</td><td>${v(m.b)}</td><td>${v(m.V)}</td><td>${v(m.dil)}</td><td>${v(c.Vs)}</td><td>${v(r.C)} mg/Sm³</td>`:""}).join("")}
+  ${d.inst.map((m,k)=>{const r=c.inst[k];return m.name&&r.C!==null?`<tr><td>${v(m.name)}</td><td>${v(m.r1)} / ${v(m.r2)} / ${v(m.r3)}</td><td>-</td><td>-</td><td>-</td><td>-</td><td>${v(r.C)} ${m.unit||"ppm"}</td>`:""}).join("")}
+  </table>
+  <table><tr><th>분석담당자</th><td>${v(d.analyst)} (서명)</td><th>책임자</th><td>${v(d.anaMgr)} (서명)</td><th>채취자</th><td>${v(d.samplerA)} ${v(d.samplerB)}</td></tr></table>
+  ${foot("CB-WI-09-03")}</div>`;
+
+  $("sheets").innerHTML = s1+s2+s3;
+}
+
+function printSheets(){
+  const on = [...document.querySelectorAll(".pchk")].filter(x=>x.checked).map(x=>x.value);
+  document.querySelectorAll("#sheets .sheet").forEach(sh=> sh.classList.toggle("skip", !on.includes(sh.dataset.s)));
+  document.querySelectorAll(".tab").forEach(t=>t.classList.remove("print-target"));
+  $("t4").classList.add("print-target");
+  window.print();
+}
+
+/* ================================================================
+   7. 저장·불러오기 (브라우저 + JSON 파일)
+   ================================================================ */
+function allRecords(){ try{ return JSON.parse(localStorage.getItem("mpg_records")||"{}"); }catch(e){ return {}; } }
+function refreshRecList(sel){
+  const r=allRecords(), keys=Object.keys(r).sort().reverse();
+  $("recList").innerHTML = `<option value="">저장된 시료 (${keys.length})</option>`+keys.map(k=>`<option ${k===sel?"selected":""}>${k}</option>`).join("");
+}
+function saveRecord(){
+  if(!D.sampleNo){ alert("시료접수번호를 먼저 입력하세요. 시료접수번호로 저장합니다."); return; }
+  const r=allRecords(); D._saved=new Date().toISOString(); r[D.sampleNo]=D;
+  localStorage.setItem("mpg_records",JSON.stringify(r)); refreshRecList(D.sampleNo); toast(D.sampleNo+" 저장됨");
+}
+function deleteRecord(){
+  const k=$("recList").value; if(!k) return;
+  if(!confirm(k+" 시료를 삭제합니다.")) return;
+  const r=allRecords(); delete r[k]; localStorage.setItem("mpg_records",JSON.stringify(r)); refreshRecList(); toast("삭제됨");
+}
+function newRecord(){ if(!confirm("입력 중인 내용을 비우고 새 시료를 시작합니다. (저장하지 않은 내용은 사라집니다)")) return; D=blankRecord(); buildTables(); refreshTeams(); fillForm(); }
+$("recList").addEventListener("change",e=>{ const k=e.target.value; if(!k) return; const r=allRecords()[k]; if(!r) return;
+  D=normalizeRecord(r); buildTables(); refreshTeams(); fillForm(); toast(k+" 불러옴"); });
+function exportJSON(){
+  if(!D.sampleNo){ alert("시료접수번호를 입력한 뒤 내보내세요."); return; }
+  const blob=new Blob([JSON.stringify(D,null,1)],{type:"application/json"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`대기측정_${D.sampleNo}.json`; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+function importJSON(input){
+  const f=input.files[0]; if(!f) return; const rd=new FileReader();
+  rd.onload=()=>{ try{ D=normalizeRecord(JSON.parse(rd.result)); buildTables(); refreshTeams(); fillForm(); toast("파일 불러옴 — 저장을 누르면 이 PC에도 보관됩니다"); }catch(e){ alert("파일 형식이 맞지 않습니다."); } };
+  rd.readAsText(f); input.value="";
+}
+
+/* ================================================================
+   8. 설정 화면
+   ================================================================ */
+function showTeamSet(i){
+  const t=S.teams[i]; $("st_name").value=t.name; $("st_pitot").value=t.pitot||""; $("st_nozzleNo").value=t.nozzleNo||"";
+  $("st_dh").value=t.dh; $("st_nozzles").value=t.nozzles.join(", ");
+  const tb=$("cpTable").tBodies[0]; tb.innerHTML="";
+  for(let k=0;k<10;k++){ const r=t.cp[k]||["",""]; tb.insertAdjacentHTML("beforeend",`<tr><td><input class="cpv" value="${r[0]}"></td><td><input class="cpc" value="${r[1]}"></td></tr>`); }
+}
+$("setTeam").addEventListener("change",e=>showTeamSet(+e.target.value));
+function saveTeam(){
+  const i=+$("setTeam").value, t=S.teams[i];
+  t.name=$("st_name").value; t.pitot=$("st_pitot").value; t.nozzleNo=$("st_nozzleNo").value; t.dh=+$("st_dh").value;
+  t.nozzles=$("st_nozzles").value.split(",").map(x=>+x.trim()).filter(x=>x);
+  const vs=[...document.querySelectorAll(".cpv")], cs=[...document.querySelectorAll(".cpc")];
+  t.cp=vs.map((x,k)=>[+x.value,+cs[k].value]).filter(r=>r[0]&&r[1]);
+  localStorage.setItem("mpg_settings",JSON.stringify(S)); refreshTeams(); refreshNozzles(); refresh(); toast("장비 저장됨");
+}
+function addTeam(){ S.teams.push({name:"새 팀",pitot:"",nozzleNo:"",dh:49.7,nozzles:[],cp:[]}); refreshTeams(); $("setTeam").value=S.teams.length-1; showTeamSet(S.teams.length-1); }
+function saveCalcSet(){ S.gasP=$("st_gasP").value; localStorage.setItem("mpg_settings",JSON.stringify(S)); refresh(); toast("계산 기준 저장됨"); }
+
+/* ================================================================
+   9. 탭·시작
+   ================================================================ */
+document.querySelectorAll("nav button").forEach(b=>b.addEventListener("click",()=>{
+  document.querySelectorAll("nav button").forEach(x=>x.classList.remove("on")); b.classList.add("on");
+  document.querySelectorAll(".tab").forEach(t=>t.classList.remove("on")); $(b.dataset.tab).classList.add("on");
+}));
+window.addEventListener("afterprint",()=>document.querySelectorAll("#sheets .sheet").forEach(s=>s.classList.remove("skip")));
+// 업무 편의: Ctrl/Cmd+S로 현재 시료 저장, 입력 중 브라우저 기본 저장 동작 방지
+document.addEventListener("keydown",e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="s"){e.preventDefault();saveRecord();}});
+
+
+buildTables(); refreshTeams(); showTeamSet(0); $("st_gasP").value=S.gasP||"760"; refreshRecList(); fillForm();
+</script>
+</body>
+</html>
